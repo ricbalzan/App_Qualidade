@@ -70,6 +70,7 @@
     </button>
   </div>
 
+  <!-- Modal de mensagens -->
   <div id="messageModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
     <div class="bg-white rounded-xl p-6 text-center max-w-sm w-full">
       <div id="modal-icon" class="mb-4"></div>
@@ -181,7 +182,6 @@
         gallery.appendChild(div);
         validateForm();
       }
-
       event.target.value = '';
     };
 
@@ -210,7 +210,6 @@
         gallery.appendChild(div);
         validateForm();
       }
-
       event.target.value = '';
     };
 
@@ -241,6 +240,7 @@
       try {
         const res = await fetch('http://localhost:3012/folders');
         const data = await res.json();
+        folderSelect.innerHTML = '<option value="">-- Selecionar --</option>';
         data.folders.forEach(f => {
           const opt = document.createElement('option');
           opt.value = f.rawName;
@@ -265,6 +265,7 @@
         destinoInput.value = data.data.destino;
 
         photos = [];
+        videos = [];
         gallery.innerHTML = '';
         galleryContainer.classList.remove('hidden');
 
@@ -275,7 +276,6 @@
           for (let i = 0; i < byteString.length; i++) {
             intArray[i] = byteString.charCodeAt(i);
           }
-
           const blob = new Blob([intArray], { type: 'image/jpeg' });
           const file = new File([blob], foto.name, { type: 'image/jpeg' });
 
@@ -296,11 +296,48 @@
           };
           gallery.appendChild(div);
         }
-
         validateForm();
       } catch (err) {
         console.error('Erro ao buscar conteúdo do ZIP:', err);
       }
+    });
+
+    async function upload() {
+      saveButton.disabled = true;
+      showMessage('loading', 'Enviando...', 'Aguarde enquanto processamos e enviamos seus arquivos.');
+
+      try {
+        const fd = new FormData();
+        fd.append('nroContainer', nroContainerInput.value.trim().toUpperCase());
+        fd.append('placa', placaInput.value.trim().toUpperCase());
+        fd.append('destino', destinoInput.value.trim().toUpperCase());
+        for (const f of photos) fd.append('photos', f);
+        for (const v of videos) fd.append('videos', v);
+
+        const res = await fetch('http://localhost:3012/upload', { method: 'POST', body: fd });
+        const data = await res.json();
+
+        if (!res.ok) throw new Error(data.message || 'Erro no upload');
+
+        showMessage('success', 'Sucesso!', data.message || 'Arquivos enviados com sucesso.');
+        photos = [];
+        videos = [];
+        gallery.innerHTML = '';
+        galleryContainer.classList.add('hidden');
+        validateForm();
+        await loadTodayFolders();
+      } catch (err) {
+        console.error(err);
+        showMessage('error', 'Erro ao enviar', err.message);
+      } finally {
+        saveButton.disabled = false;
+      }
+    }
+
+    saveButton.addEventListener('click', (e) => {
+      e.preventDefault();
+      validateForm();
+      if (!saveButton.disabled) upload();
     });
 
     loadTodayFolders();
