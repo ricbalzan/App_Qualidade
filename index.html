@@ -76,11 +76,11 @@
     </div>
   </div>
 
-<!-- Modal de visualização em tela cheia -->
-<div id="imageModal" class="fixed inset-0 bg-black bg-opacity-90 hidden flex items-center justify-center z-50">
-  <button id="imageModalClose" aria-label="Fechar visualização" class="absolute top-4 right-4 text-white text-4xl leading-none">&times;</button>
-  <img id="imageModalContent" src="" alt="Visualização" class="max-w-full max-h-full rounded-lg shadow-lg" />
-</div>
+  <!-- Modal de visualização em tela cheia -->
+  <div id="imageModal" class="fixed inset-0 bg-black bg-opacity-90 hidden flex items-center justify-center z-50">
+    <button id="imageModalClose" aria-label="Fechar visualização" class="absolute top-4 right-4 text-white text-4xl leading-none">&times;</button>
+    <img id="imageModalContent" src="" alt="Visualização" class="max-w-full max-h-full rounded-lg shadow-lg" />
+  </div>
 
   <script>
     const nroContainerInput = document.getElementById('nroContainer');
@@ -106,6 +106,23 @@
 
     let photos = [];
     let videos = [];
+
+    // ---- helper fetchJSON (evita "Unexpected token '<'") ----
+    async function fetchJSON(url, options) {
+      const res = await fetch(url, options);
+      const ct = res.headers.get('content-type') || '';
+      if (ct.includes('application/json')) {
+        const data = await res.json();
+        if (!res.ok) {
+          const msg = (data && (data.message || data.error)) || `HTTP ${res.status}`;
+          throw new Error(msg);
+        }
+        return data;
+      }
+      const text = await res.text();
+      if (!res.ok) throw new Error(text || `HTTP ${res.status}`);
+      return text;
+    }
 
     const isValid = (str, type = 'text') => {
       const trimmed = str.trim().toUpperCase();
@@ -257,8 +274,7 @@
     // Carregar pastas de hoje
     async function loadTodayFolders() {
       try {
-        const res = await fetch('http://localhost:3012/folders');
-        const data = await res.json();
+        const data = await fetchJSON('http://10.0.2.2:3012/folders');
         folderSelect.innerHTML = '<option value="">-- Selecionar --</option>';
         (data.folders || []).forEach(f => {
           const opt = document.createElement('option');
@@ -277,8 +293,7 @@
       if (!zipName) return;
 
       try {
-        const res = await fetch(`http://localhost:3012/folder/${encodeURIComponent(zipName)}`);
-        const data = await res.json();
+        const data = await fetchJSON(`http://10.0.2.2:3012/folder/${encodeURIComponent(zipName)}`);
 
         nroContainerInput.value = data.data.nroContainer || '';
         placaInput.value = data.data.placa || '';
@@ -319,10 +334,7 @@
         for (const f of photos) fd.append('photos', f);
         for (const v of videos) fd.append('videos', v);
 
-        const res = await fetch('http://localhost:3012/upload', { method: 'POST', body: fd });
-        const data = await res.json();
-
-        if (!res.ok) throw new Error(data.message || 'Erro no upload');
+        const data = await fetchJSON('http://10.0.2.2:3012/upload', { method: 'POST', body: fd });
 
         showMessage('success', 'Sucesso!', data.message || 'Arquivos enviados com sucesso.');
         photos = [];

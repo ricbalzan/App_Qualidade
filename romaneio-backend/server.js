@@ -1,4 +1,4 @@
-// server.js
+// server.js (Opção A - tolerante)
 const express = require('express');
 const multer = require('multer');
 const JSZip = require('jszip');
@@ -24,19 +24,19 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Storage em memória
 const upload = multer({ storage: multer.memoryStorage() });
 
 const isVideo = (file) => /^video\//i.test(file.mimetype);
 
 // ---------------- Sanitização ----------------
-// Remove acentos e troca qualquer caractere fora do permitido por "_"
 function sanitizeName(name) {
   return String(name || '')
-    .normalize('NFD')                 // separa acentos (á -> a + ́)
-    .replace(/[\u0300-\u036f]/g, '')  // remove marcas de acento
-    .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_') // caracteres inválidos no Windows
-    .replace(/[^a-zA-Z0-9 _-]/g, '_') // só permite letras, números, espaço, _ e -
-    .replace(/\s+/g, ' ')             // colapsa múltiplos espaços
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_')
+    .replace(/[^a-zA-Z0-9 _-]/g, '_')
+    .replace(/\s+/g, ' ')
     .trim();
 }
 
@@ -45,7 +45,6 @@ function sanitizeFilename(original) {
   const ext = path.extname(original || '');
   const base = path.basename(original || '', ext);
   const cleanBase = sanitizeName(base);
-  // evita nomes vazios tipo ".jpg"
   const finalBase = cleanBase.length ? cleanBase : 'arquivo';
   return finalBase + ext.toLowerCase();
 }
@@ -102,22 +101,22 @@ const compressVideo = (inputBuffer, filename) => {
   });
 };
 
-// --- Upload de fotos e vídeos
-app.post(
-  '/upload',
-  upload.fields([
-    { name: 'photos', maxCount: 20 },
-    { name: 'videos', maxCount: 10 },
-  ]),
-  async (req, res) => {
+// --- Upload de fotos e vídeos (MODO TOLERANTE p/ DEBUG)
+app.post('/upload', upload.any(), async (req, res, next) => {
+  try {
+    // Log: nomes de campos que chegaram (para descobrir quem está fora do esperado)
+    console.log('campos recebidos:', (req.files || []).map(f => f.fieldname));
+
     // Sanitiza imediatamente os campos de entrada
     const nroContainer = sanitizeName(req.body.nroContainer || '');
     const placa = sanitizeName(req.body.placa || '');
     const destino = sanitizeName(req.body.destino || '');
     const dataAtual = yyyymmddBR(0);
 
-    const photos = req.files?.['photos'] || [];
-    const videos = req.files?.['videos'] || [];
+    // Separa arquivos por mimetype (independe do nome de campo)
+    const allFiles = req.files || [];
+    const photos = allFiles.filter(f => /^image\//i.test(f.mimetype));
+    const videos = allFiles.filter(f => /^video\//i.test(f.mimetype));
 
     if (
       !nroContainer ||
@@ -199,7 +198,7 @@ app.post(
       // Salva de forma "atômica": escreve num TMP e depois renomeia por cima do final
       const tmpZipPath = path.join(saveDirectory, `${folderName}.${Date.now()}.tmp`);
       fs.writeFileSync(tmpZipPath, zipBuffer);
-      try { fs.unlinkSync(zipFilePath); } catch {} // remove se existir
+      try { fs.unlinkSync(zipFilePath); } catch {}
       fs.renameSync(tmpZipPath, zipFilePath);
 
       console.log(`[OK] ZIP salvo em: ${zipFilePath}`);
@@ -216,8 +215,10 @@ app.post(
         message: 'Erro ao processar ou salvar os arquivos.',
       });
     }
+  } catch (err) {
+    next(err);
   }
-);
+});
 
 // --- Listar arquivos .zip de HOJE e ONTEM
 app.get('/folders', (req, res) => {
@@ -314,7 +315,32 @@ app.get('/folder/:zipName', (req, res) => {
   }
 });
 
+// ---------- MIDDLEWARE GLOBAL DE ERRO ----------
+app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    // Mesmo usando .any(), deixamos claro se o erro for do multer (limites, etc.)
+    return res.status(400).json({
+      success: false,
+      type: 'MULTER_ERROR',
+      code: err.code,
+      field: err.field,
+      message: err.message
+    });
+  }
+
+  if (err) {
+    console.error('[UNCAUGHT ERROR]', err);
+    return res.status(500).json({
+      success: false,
+      type: 'SERVER_ERROR',
+      message: err.message || 'Erro inesperado'
+    });
+  }
+
+  return next();
+});
+
 // --- Iniciar o servidor HTTP
 app.listen(PORT, () => {
-  console.log(`Backend rodando em: http://localhost:${PORT}`);
+  console.log(`Backend rodando em: http://10.0.2.2:${PORT}`);
 });
