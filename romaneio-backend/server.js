@@ -28,6 +28,28 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 const isVideo = (file) => /^video\//i.test(file.mimetype);
 
+// ---------------- Sanitização ----------------
+// Remove acentos e troca qualquer caractere fora do permitido por "_"
+function sanitizeName(name) {
+  return String(name || '')
+    .normalize('NFD')                 // separa acentos (á -> a + ́)
+    .replace(/[\u0300-\u036f]/g, '')  // remove marcas de acento
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_') // caracteres inválidos no Windows
+    .replace(/[^a-zA-Z0-9 _-]/g, '_') // só permite letras, números, espaço, _ e -
+    .replace(/\s+/g, ' ')             // colapsa múltiplos espaços
+    .trim();
+}
+
+// Para nomes de arquivos enviados: preserva a extensão, limpa apenas o "base"
+function sanitizeFilename(original) {
+  const ext = path.extname(original || '');
+  const base = path.basename(original || '', ext);
+  const cleanBase = sanitizeName(base);
+  // evita nomes vazios tipo ".jpg"
+  const finalBase = cleanBase.length ? cleanBase : 'arquivo';
+  return finalBase + ext.toLowerCase();
+}
+
 // Data local BR (YYYY-MM-DD) — evita bug de UTC
 function yyyymmddBR(offsetDays = 0) {
   const dt = new Date();
@@ -61,8 +83,8 @@ const compressVideo = (inputBuffer, filename) => {
       .on('end', () => {
         try {
           const compressedBuffer = fs.readFileSync(tmpOutput);
-          fs.unlinkSync(tmpInput);
-          fs.unlinkSync(tmpOutput);
+          try { fs.unlinkSync(tmpInput); } catch {}
+          try { fs.unlinkSync(tmpOutput); } catch {}
           resolve(compressedBuffer);
         } catch (e) {
           try { fs.unlinkSync(tmpInput); } catch {}
@@ -88,9 +110,10 @@ app.post(
     { name: 'videos', maxCount: 10 },
   ]),
   async (req, res) => {
-    const nroContainer = req.body.nroContainer?.trim();
-    const placa = req.body.placa?.trim();
-    const destino = req.body.destino?.trim();
+    // Sanitiza imediatamente os campos de entrada
+    const nroContainer = sanitizeName(req.body.nroContainer || '');
+    const placa = sanitizeName(req.body.placa || '');
+    const destino = sanitizeName(req.body.destino || '');
     const dataAtual = yyyymmddBR(0);
 
     const photos = req.files?.['photos'] || [];
@@ -118,6 +141,7 @@ app.post(
       return res.status(500).json({ success: false, message: 'Pasta de destino indisponível.' });
     }
 
+    // Monta nome de pasta/zip com campos já sanitizados
     const folderName = `${dataAtual} - ${nroContainer} - ${placa} - ${destino}`;
     const baseZipName = `${folderName}.zip`;
     const zipFilePath = path.join(saveDirectory, baseZipName);
@@ -142,10 +166,10 @@ app.post(
 
       const addFilesToZip = async (files, prefix = '') => {
         for (const file of files) {
-          const ext = path.extname(file.originalname) || '';
-          const baseName = path
-            .basename(file.originalname, ext)
-            .replace(/\s+/g, '_');
+          // Sanitiza o nome original (mantém extensão real em minúsculo)
+          const cleanOriginal = sanitizeFilename(file.originalname);
+          const ext = path.extname(cleanOriginal) || '';
+          const baseName = path.basename(cleanOriginal, ext);
 
           let finalName = `${prefix}${baseName}${ext}`;
 
@@ -158,7 +182,8 @@ app.post(
 
           if (isVideo(file)) {
             const compressedBuffer = await compressVideo(file.buffer, finalName);
-            zip.file(finalName.replace(ext, '.mp4'), compressedBuffer);
+            const mp4Name = `${prefix}${baseName}.mp4`;
+            zip.file(mp4Name, compressedBuffer);
           } else {
             zip.file(finalName, file.buffer);
           }
