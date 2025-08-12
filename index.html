@@ -8,14 +8,10 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
   <style>
     body { font-family: 'Inter', sans-serif; }
-    .loader {
-      border-top-color: #3498db;
-      animation: spin 1s linear infinite;
-    }
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
+    .loader { border-top-color: #3498db; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
     #cameraInput, #galleryInput, #videoInput { display: none; }
+    #imageModal img { object-fit: contain; }
   </style>
 </head>
 <body class="bg-gray-100 min-h-screen flex items-center justify-center px-4">
@@ -80,6 +76,12 @@
     </div>
   </div>
 
+<!-- Modal de visualização em tela cheia -->
+<div id="imageModal" class="fixed inset-0 bg-black bg-opacity-90 hidden flex items-center justify-center z-50">
+  <button id="imageModalClose" aria-label="Fechar visualização" class="absolute top-4 right-4 text-white text-4xl leading-none">&times;</button>
+  <img id="imageModalContent" src="" alt="Visualização" class="max-w-full max-h-full rounded-lg shadow-lg" />
+</div>
+
   <script>
     const nroContainerInput = document.getElementById('nroContainer');
     const placaInput = document.getElementById('placa');
@@ -96,6 +98,11 @@
     const modalIcon = document.getElementById('modal-icon');
     const modalCloseButton = document.getElementById('modalCloseButton');
     const folderSelect = document.getElementById('folderSelect');
+
+    // Modal de imagem
+    const imageModal = document.getElementById('imageModal');
+    const imageModalContent = document.getElementById('imageModalContent');
+    const imageModalClose = document.getElementById('imageModalClose');
 
     let photos = [];
     let videos = [];
@@ -158,6 +165,30 @@
       });
     };
 
+    const addImageToGallery = (blobOrBase64, fileRef) => {
+      const src = typeof blobOrBase64 === 'string'
+        ? `data:image/jpeg;base64,${blobOrBase64}`
+        : URL.createObjectURL(blobOrBase64);
+
+      const div = document.createElement('div');
+      div.className = 'relative group';
+      div.innerHTML = `
+        <img src="${src}" alt="Foto adicionada" class="w-full h-24 object-cover rounded-md shadow-md cursor-zoom-in">
+        <button class="absolute top-1 right-1 bg-red-600 text-white w-6 h-6 rounded-full font-bold opacity-0 group-hover:opacity-100 transition" aria-label="Remover foto">&times;</button>
+      `;
+
+      // Remover
+      div.querySelector('button').onclick = () => {
+        const index = photos.indexOf(fileRef);
+        if (index > -1) photos.splice(index, 1);
+        div.remove();
+        if (photos.length === 0 && videos.length === 0) galleryContainer.classList.add('hidden');
+        validateForm();
+      };
+
+      gallery.appendChild(div);
+    };
+
     const handleFileInput = async (event) => {
       const files = Array.from(event.target.files);
       if (files.length > 0) galleryContainer.classList.remove('hidden');
@@ -165,21 +196,7 @@
       for (const file of files) {
         const { file: stampedFile, blob } = await processImage(file);
         photos.push(stampedFile);
-
-        const div = document.createElement('div');
-        div.className = 'relative group';
-        div.innerHTML = `
-          <img src="${URL.createObjectURL(blob)}" class="w-full h-24 object-cover rounded-md shadow-md">
-          <button class="absolute top-1 right-1 bg-red-600 text-white w-6 h-6 rounded-full font-bold opacity-0 group-hover:opacity-100 transition">&times;</button>
-        `;
-        div.querySelector('button').onclick = () => {
-          const index = photos.indexOf(stampedFile);
-          if (index > -1) photos.splice(index, 1);
-          div.remove();
-          if (photos.length === 0 && videos.length === 0) galleryContainer.classList.add('hidden');
-          validateForm();
-        };
-        gallery.appendChild(div);
+        addImageToGallery(blob, stampedFile);
         validateForm();
       }
       event.target.value = '';
@@ -198,7 +215,7 @@
           <video controls class="w-full h-24 object-cover rounded-md shadow-md">
             <source src="${URL.createObjectURL(file)}" type="${file.type}">
           </video>
-          <button class="absolute top-1 right-1 bg-red-600 text-white w-6 h-6 rounded-full font-bold opacity-0 group-hover:opacity-100 transition">&times;</button>
+          <button class="absolute top-1 right-1 bg-red-600 text-white w-6 h-6 rounded-full font-bold opacity-0 group-hover:opacity-100 transition" aria-label="Remover vídeo">&times;</button>
         `;
         div.querySelector('button').onclick = () => {
           const index = videos.indexOf(file);
@@ -213,12 +230,13 @@
       event.target.value = '';
     };
 
+    // Eventos inputs
     cameraInput.addEventListener('change', handleFileInput);
     galleryInput.addEventListener('change', handleFileInput);
     videoInput.addEventListener('change', handleVideoInput);
 
+    // Modal mensagens
     modalCloseButton.addEventListener('click', () => messageModal.classList.add('hidden'));
-
     const showMessage = (type, title, message) => {
       modalTitle.textContent = title;
       modalMessage.textContent = message;
@@ -236,12 +254,13 @@
       messageModal.classList.remove('hidden');
     };
 
+    // Carregar pastas de hoje
     async function loadTodayFolders() {
       try {
         const res = await fetch('http://localhost:3012/folders');
         const data = await res.json();
         folderSelect.innerHTML = '<option value="">-- Selecionar --</option>';
-        data.folders.forEach(f => {
+        (data.folders || []).forEach(f => {
           const opt = document.createElement('option');
           opt.value = f.rawName;
           opt.textContent = f.displayName;
@@ -252,6 +271,7 @@
       }
     }
 
+    // Selecionar pasta e preencher
     folderSelect.addEventListener('change', async (e) => {
       const zipName = e.target.value;
       if (!zipName) return;
@@ -260,41 +280,25 @@
         const res = await fetch(`http://localhost:3012/folder/${encodeURIComponent(zipName)}`);
         const data = await res.json();
 
-        nroContainerInput.value = data.data.nroContainer;
-        placaInput.value = data.data.placa;
-        destinoInput.value = data.data.destino;
+        nroContainerInput.value = data.data.nroContainer || '';
+        placaInput.value = data.data.placa || '';
+        destinoInput.value = data.data.destino || '';
 
         photos = [];
         videos = [];
         gallery.innerHTML = '';
         galleryContainer.classList.remove('hidden');
 
-        for (const foto of data.fotos) {
+        for (const foto of (data.fotos || [])) {
           const byteString = atob(foto.base64);
           const arrayBuffer = new ArrayBuffer(byteString.length);
           const intArray = new Uint8Array(arrayBuffer);
-          for (let i = 0; i < byteString.length; i++) {
-            intArray[i] = byteString.charCodeAt(i);
-          }
+          for (let i = 0; i < byteString.length; i++) intArray[i] = byteString.charCodeAt(i);
           const blob = new Blob([intArray], { type: 'image/jpeg' });
           const file = new File([blob], foto.name, { type: 'image/jpeg' });
 
           photos.push(file);
-
-          const div = document.createElement('div');
-          div.className = 'relative group';
-          div.innerHTML = `
-            <img src="data:image/jpeg;base64,${foto.base64}" class="w-full h-24 object-cover rounded-md shadow-md">
-            <button class="absolute top-1 right-1 bg-red-600 text-white w-6 h-6 rounded-full font-bold opacity-0 group-hover:opacity-100 transition">&times;</button>
-          `;
-          div.querySelector('button').onclick = () => {
-            const index = photos.indexOf(file);
-            if (index > -1) photos.splice(index, 1);
-            div.remove();
-            if (photos.length === 0 && videos.length === 0) galleryContainer.classList.add('hidden');
-            validateForm();
-          };
-          gallery.appendChild(div);
+          addImageToGallery(foto.base64, file);
         }
         validateForm();
       } catch (err) {
@@ -302,6 +306,7 @@
       }
     });
 
+    // Upload
     async function upload() {
       saveButton.disabled = true;
       showMessage('loading', 'Enviando...', 'Aguarde enquanto processamos e enviamos seus arquivos.');
@@ -340,6 +345,31 @@
       if (!saveButton.disabled) upload();
     });
 
+    // Abrir imagem em tela cheia
+    function openImageModal(src) {
+      imageModalContent.src = src;
+      imageModal.classList.remove('hidden');
+    }
+
+    // Fechar modal (X, clique fora e ESC)
+    imageModalClose.addEventListener('click', () => imageModal.classList.add('hidden'));
+    imageModal.addEventListener('click', (e) => {
+      if (e.target === imageModal) imageModal.classList.add('hidden');
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !imageModal.classList.contains('hidden')) {
+        imageModal.classList.add('hidden');
+      }
+    });
+
+    // Delegação: clique nas imagens da galeria abre o modal
+    gallery.addEventListener('click', (e) => {
+      if (e.target && e.target.tagName === 'IMG') {
+        openImageModal(e.target.src);
+      }
+    });
+
+    // Inicialização
     loadTodayFolders();
   </script>
 </body>
