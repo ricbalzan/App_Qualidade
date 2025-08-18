@@ -1,4 +1,4 @@
-// server.js (Opção A - tolerante)
+// server.js (Opção A - tolerante + rota de rename)
 const express = require('express');
 const multer = require('multer');
 const JSZip = require('jszip');
@@ -65,6 +65,9 @@ function yyyymmddBR(offsetDays = 0) {
   const ano = parts.find(p => p.type === 'year').value;
   return `${ano}-${mes}-${dia}`;
 }
+
+// Regex do padrão aceito de nome do ZIP
+const ZIP_NAME_REGEX = /^(\d{4}-\d{2}-\d{2}) - (.+?) - (.+?) - (.+?)(?:-\d+)?\.zip$/i;
 
 // Comprimir vídeo (gera MP4 H.264 360p)
 const compressVideo = (inputBuffer, filename) => {
@@ -292,9 +295,7 @@ app.get('/folder/:zipName', (req, res) => {
       }));
 
     // Extrai metadados do nome do arquivo
-    const match = name.match(
-      /^(\d{4}-\d{2}-\d{2}) - (.+?) - (.+?) - (.+?)(?:-\d+)?\.zip$/i
-    );
+    const match = name.match(ZIP_NAME_REGEX);
     if (!match) {
       return res.status(400).json({
         success: false,
@@ -315,10 +316,61 @@ app.get('/folder/:zipName', (req, res) => {
   }
 });
 
+// --- Renomear um arquivo .zip
+app.post('/rename', (req, res) => {
+  try {
+    let { oldName, newName } = req.body || {};
+
+    if (!oldName || !newName) {
+      return res.status(400).json({ success: false, message: 'Parâmetros ausentes.' });
+    }
+
+    // Mantém apenas o basename para evitar path traversal
+    oldName = path.basename(oldName);
+    newName = path.basename(newName);
+
+    if (!/\.zip$/i.test(oldName) || !/\.zip$/i.test(newName)) {
+      return res.status(400).json({ success: false, message: 'Nome deve terminar com .zip' });
+    }
+
+    // Checa se o novo nome segue o padrão
+    if (!ZIP_NAME_REGEX.test(newName)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Novo nome não segue o padrão "YYYY-MM-DD - CONTAINER - PLACA - DESTINO.zip".'
+      });
+    }
+
+    const absSave = path.resolve(saveDirectory);
+    const oldPath = path.resolve(absSave, oldName);
+    const newPath = path.resolve(absSave, newName);
+
+    // segurança: apenas dentro do diretório permitido
+    if (!oldPath.startsWith(absSave + path.sep) || !newPath.startsWith(absSave + path.sep)) {
+      return res.status(400).json({ success: false, message: 'Caminho inválido.' });
+    }
+
+    if (!fs.existsSync(oldPath)) {
+      return res.status(404).json({ success: false, message: 'Arquivo de origem não encontrado.' });
+    }
+
+    // Se já existir um arquivo com o novo nome, remove para sobrescrever (ou retorne erro, se preferir)
+    try {
+      if (fs.existsSync(newPath)) fs.unlinkSync(newPath);
+    } catch {}
+
+    fs.renameSync(oldPath, newPath);
+
+    res.json({ success: true, message: `Renomeado para ${path.basename(newPath)}`, newName: path.basename(newPath) });
+  } catch (err) {
+    console.error('[ERRO AO RENOMEAR]', err.message);
+    res.status(500).json({ success: false, message: 'Erro ao renomear arquivo.' });
+  }
+});
+
 // ---------- MIDDLEWARE GLOBAL DE ERRO ----------
 app.use((err, req, res, next) => {
   if (err instanceof multer.MulterError) {
-    // Mesmo usando .any(), deixamos claro se o erro for do multer (limites, etc.)
     return res.status(400).json({
       success: false,
       type: 'MULTER_ERROR',

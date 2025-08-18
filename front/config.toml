@@ -1,0 +1,8 @@
+[server]
+address = "10.0.2.2"
+port = 8501
+headless = true
+baseUrlPath = "fotos"   # <- vai casar com o alias no IIS
+enableCORS = false
+enableXsrfProtection = true
+fileWatcherType = "none"

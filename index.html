@@ -16,6 +16,7 @@
 </head>
 <body class="bg-gray-100 min-h-screen flex items-center justify-center px-4">
   <div class="bg-white p-6 rounded-2xl shadow-md w-full max-w-md space-y-6">
+    <!-- Cabeçalho -->
     <header class="flex items-center gap-4">
       <img src="img/Logo.png" alt="Logo" class="w-16 h-auto" />
       <div>
@@ -24,13 +25,19 @@
       </div>
     </header>
 
+    <!-- Seleção de ZIP salvo -->
     <div>
-      <label for="folderSelect" class="block text-sm font-medium">Selecionar envio salvo hoje</label>
-      <select id="folderSelect" class="w-full px-4 py-2 border border-gray-300 rounded-lg">
-        <option value="">-- Selecionar --</option>
-      </select>
+      <label for="folderSelect" class="block text-sm font-medium">Selecionar envio salvo hoje/ontem</label>
+      <div class="flex gap-2">
+        <select id="folderSelect" class="flex-1 px-4 py-2 border border-gray-300 rounded-lg">
+          <option value="">-- Selecionar --</option>
+        </select>
+        <button id="refreshFolders" type="button" class="px-3 py-2 rounded-lg bg-gray-200 hover:bg-gray-300" title="Atualizar lista">↻</button>
+      </div>
+      <p id="selectedRawName" class="text-xs text-gray-500 mt-1"></p>
     </div>
 
+    <!-- Campos de dados -->
     <div class="space-y-4">
       <div>
         <label for="nroContainer" class="block text-sm font-medium">Nro Container</label>
@@ -46,24 +53,35 @@
       </div>
     </div>
 
+    <!-- Botões de mídia -->
     <div class="space-y-3">
       <button type="button" onclick="document.getElementById('cameraInput').click()" class="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition">Tirar Foto</button>
       <button type="button" onclick="document.getElementById('galleryInput').click()" class="w-full bg-indigo-600 text-white py-3 rounded-lg hover:bg-indigo-700 transition">Galeria de Fotos</button>
       <button type="button" onclick="document.getElementById('videoInput').click()" class="w-full bg-yellow-600 text-white py-3 rounded-lg hover:bg-yellow-700 transition">Selecionar Vídeo</button>
+
+      <!-- Botão Renomear logo abaixo dos botões de mídia -->
+      <button id="renameButton" type="button" class="w-full bg-purple-600 text-white py-3 rounded-lg hover:bg-purple-700 disabled:bg-gray-400 transition font-bold mt-2" disabled>
+        Renomear ZIP selecionado
+      </button>
     </div>
 
+    <!-- Inputs de arquivo (ocultos) -->
     <input type="file" id="cameraInput" accept="image/*" capture="environment" multiple />
     <input type="file" id="galleryInput" accept="image/*" multiple />
     <input type="file" id="videoInput" accept="video/*" multiple />
 
+    <!-- Galeria -->
     <div id="gallery-container" class="hidden">
       <h2 class="text-lg font-semibold mt-4">Mídias adicionadas</h2>
       <div id="gallery" class="grid grid-cols-3 gap-2 mt-2"></div>
     </div>
 
-    <button id="saveButton" disabled class="w-full bg-green-600 text-white py-3 rounded-lg hover:bg-green-700 disabled:bg-gray-400 transition font-bold">
-      Salvar e Enviar
-    </button>
+    <!-- Ações principais -->
+    <div class="grid grid-cols-1 gap-2">
+      <button id="saveButton" type="button" disabled class="w-full bg-green-600 text-white py-3 rounded-lg hover:bg-green-700 disabled:bg-gray-400 transition font-bold">
+        Salvar e Enviar
+      </button>
+    </div>
   </div>
 
   <!-- Modal de mensagens -->
@@ -72,17 +90,19 @@
       <div id="modal-icon" class="mb-4"></div>
       <h2 id="modalTitle" class="text-xl font-bold"></h2>
       <p id="modalMessage" class="text-gray-600 mt-2"></p>
-      <button id="modalCloseButton" class="mt-6 w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700">Fechar</button>
+      <button id="modalCloseButton" type="button" class="mt-6 w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700">Fechar</button>
     </div>
   </div>
 
   <!-- Modal de visualização em tela cheia -->
   <div id="imageModal" class="fixed inset-0 bg-black bg-opacity-90 hidden flex items-center justify-center z-50">
-    <button id="imageModalClose" aria-label="Fechar visualização" class="absolute top-4 right-4 text-white text-4xl leading-none">&times;</button>
+    <button id="imageModalClose" type="button" aria-label="Fechar visualização" class="absolute top-4 right-4 text-white text-4xl leading-none">&times;</button>
     <img id="imageModalContent" src="" alt="Visualização" class="max-w-full max-h-full rounded-lg shadow-lg" />
   </div>
 
   <script>
+    const API_BASE = 'http://10.0.2.2:3012';
+
     const nroContainerInput = document.getElementById('nroContainer');
     const placaInput = document.getElementById('placa');
     const destinoInput = document.getElementById('destino');
@@ -92,12 +112,15 @@
     const galleryContainer = document.getElementById('gallery-container');
     const gallery = document.getElementById('gallery');
     const saveButton = document.getElementById('saveButton');
+    const renameButton = document.getElementById('renameButton');
     const messageModal = document.getElementById('messageModal');
     const modalTitle = document.getElementById('modalTitle');
     const modalMessage = document.getElementById('modalMessage');
     const modalIcon = document.getElementById('modal-icon');
     const modalCloseButton = document.getElementById('modalCloseButton');
     const folderSelect = document.getElementById('folderSelect');
+    const selectedRawName = document.getElementById('selectedRawName');
+    const refreshFolders = document.getElementById('refreshFolders');
 
     // Modal de imagem
     const imageModal = document.getElementById('imageModal');
@@ -107,7 +130,7 @@
     let photos = [];
     let videos = [];
 
-    // ---- helper fetchJSON (evita "Unexpected token '<'") ----
+    // ---- helper fetchJSON
     async function fetchJSON(url, options) {
       const res = await fetch(url, options);
       const ct = res.headers.get('content-type') || '';
@@ -124,8 +147,9 @@
       return text;
     }
 
+    // --- validações
     const isValid = (str, type = 'text') => {
-      const trimmed = str.trim().toUpperCase();
+      const trimmed = (str || '').trim().toUpperCase();
       if (type === 'placa') {
         return /^[A-Z]{3}\d{4}$/.test(trimmed) || /^[A-Z]{3}\d[A-Z]\d{2}$/.test(trimmed);
       }
@@ -142,6 +166,9 @@
       placaInput.classList.toggle('border-gray-300', validPlaca);
 
       saveButton.disabled = !(validContainer && validPlaca && validDestino && hasMedia);
+
+      // habilita renomear se há um zip selecionado e campos válidos
+      renameButton.disabled = !(folderSelect.value && validContainer && validPlaca && validDestino);
     };
 
     [nroContainerInput, placaInput, destinoInput].forEach(input => {
@@ -191,7 +218,7 @@
       div.className = 'relative group';
       div.innerHTML = `
         <img src="${src}" alt="Foto adicionada" class="w-full h-24 object-cover rounded-md shadow-md cursor-zoom-in">
-        <button class="absolute top-1 right-1 bg-red-600 text-white w-6 h-6 rounded-full font-bold opacity-0 group-hover:opacity-100 transition" aria-label="Remover foto">&times;</button>
+        <button type="button" class="absolute top-1 right-1 bg-red-600 text-white w-6 h-6 rounded-full font-bold opacity-0 group-hover:opacity-100 transition" aria-label="Remover foto">&times;</button>
       `;
 
       // Remover
@@ -232,7 +259,7 @@
           <video controls class="w-full h-24 object-cover rounded-md shadow-md">
             <source src="${URL.createObjectURL(file)}" type="${file.type}">
           </video>
-          <button class="absolute top-1 right-1 bg-red-600 text-white w-6 h-6 rounded-full font-bold opacity-0 group-hover:opacity-100 transition" aria-label="Remover vídeo">&times;</button>
+          <button type="button" class="absolute top-1 right-1 bg-red-600 text-white w-6 h-6 rounded-full font-bold opacity-0 group-hover:opacity-100 transition" aria-label="Remover vídeo">&times;</button>
         `;
         div.querySelector('button').onclick = () => {
           const index = videos.indexOf(file);
@@ -259,22 +286,31 @@
       modalMessage.textContent = message;
 
       if (type === 'loading') {
-        modalIcon.innerHTML = `<div class="loader mx-auto w-12 h-12 border-4 border-gray-300 border-t-blue-600 rounded-full"></div>`;
+        modalIcon.innerHTML = '<div class="loader mx-auto w-12 h-12 border-4 border-gray-300 border-t-blue-600 rounded-full"></div>';
         modalCloseButton.classList.add('hidden');
       } else {
         modalIcon.innerHTML = type === 'success'
-          ? `<svg class="w-12 h-12 text-green-500 mx-auto" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>`
-          : `<svg class="w-12 h-12 text-red-500 mx-auto" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>`;
+          ? '<svg class="w-12 h-12 text-green-500 mx-auto" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>'
+          : '<svg class="w-12 h-12 text-red-500 mx-auto" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>';
         modalCloseButton.classList.remove('hidden');
       }
 
       messageModal.classList.remove('hidden');
     };
 
-    // Carregar pastas de hoje
+    // Data YYYY-MM-DD (fuso São Paulo)
+    function todayBR() {
+      const dt = new Date();
+      return new Intl.DateTimeFormat('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
+        year: 'numeric', month: '2-digit', day: '2-digit'
+      }).format(dt).split('/').reverse().join('-');
+    }
+
+    // Carregar pastas de hoje/ontem
     async function loadTodayFolders() {
       try {
-        const data = await fetchJSON('http://10.0.2.2:3012/folders');
+        const data = await fetchJSON(`${API_BASE}/folders`);
         folderSelect.innerHTML = '<option value="">-- Selecionar --</option>';
         (data.folders || []).forEach(f => {
           const opt = document.createElement('option');
@@ -282,18 +318,23 @@
           opt.textContent = f.displayName;
           folderSelect.appendChild(opt);
         });
+        validateForm();
       } catch (err) {
         console.error('Erro ao carregar pastas:', err);
       }
     }
+    refreshFolders.addEventListener('click', loadTodayFolders);
 
-    // Selecionar pasta e preencher
+    // Seleção de ZIP e preenchimento de campos
     folderSelect.addEventListener('change', async (e) => {
       const zipName = e.target.value;
+      selectedRawName.textContent = zipName ? `Arquivo selecionado: ${zipName}` : '';
+      renameButton.disabled = !zipName;
+
       if (!zipName) return;
 
       try {
-        const data = await fetchJSON(`http://10.0.2.2:3012/folder/${encodeURIComponent(zipName)}`);
+        const data = await fetchJSON(`${API_BASE}/folder/${encodeURIComponent(zipName)}`);
 
         nroContainerInput.value = data.data.nroContainer || '';
         placaInput.value = data.data.placa || '';
@@ -325,16 +366,15 @@
     async function upload() {
       saveButton.disabled = true;
       showMessage('loading', 'Enviando...', 'Aguarde enquanto processamos e enviamos seus arquivos.');
-
       try {
         const fd = new FormData();
-        fd.append('nroContainer', nroContainerInput.value.trim().toUpperCase());
-        fd.append('placa', placaInput.value.trim().toUpperCase());
-        fd.append('destino', destinoInput.value.trim().toUpperCase());
+        fd.append('nroContainer', (nroContainerInput.value || '').trim().toUpperCase());
+        fd.append('placa', (placaInput.value || '').trim().toUpperCase());
+        fd.append('destino', (destinoInput.value || '').trim().toUpperCase());
         for (const f of photos) fd.append('photos', f);
         for (const v of videos) fd.append('videos', v);
 
-        const data = await fetchJSON('http://10.0.2.2:3012/upload', { method: 'POST', body: fd });
+        const data = await fetchJSON(`${API_BASE}/upload`, { method: 'POST', body: fd });
 
         showMessage('success', 'Sucesso!', data.message || 'Arquivos enviados com sucesso.');
         photos = [];
@@ -350,35 +390,71 @@
         saveButton.disabled = false;
       }
     }
-
     saveButton.addEventListener('click', (e) => {
       e.preventDefault();
       validateForm();
       if (!saveButton.disabled) upload();
     });
 
-    // Abrir imagem em tela cheia
+    // Renomear ZIP selecionado
+    async function renameSelectedZip() {
+      const oldName = folderSelect.value;
+      if (!oldName) return;
+
+      const nro = (nroContainerInput.value || '').trim().toUpperCase();
+      const plc = (placaInput.value || '').trim().toUpperCase();
+      const dst = (destinoInput.value || '').trim();
+
+      if (!nro || !plc || !dst) {
+        showMessage('error', 'Campos incompletos', 'Preencha Container, Placa e Destino para gerar o novo nome.');
+        return;
+      }
+
+      // Usa a data do arquivo original quando disponível; senão, usa a data de hoje
+      let datePrefix = todayBR();
+      if (/^\d{4}-\d{2}-\d{2}/.test(oldName)) {
+        datePrefix = oldName.substring(0, 10);
+      }
+      const newName = `${datePrefix} - ${nro} - ${plc} - ${dst}.zip`;
+
+      showMessage('loading', 'Renomeando...', `Alterando para: ${newName}`);
+      try {
+        const resp = await fetchJSON(`${API_BASE}/rename`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ oldName, newName })
+        });
+
+        showMessage('success', 'Renomeado', resp.message || 'Arquivo renomeado com sucesso.');
+        await loadTodayFolders();
+
+        // Re-seleciona o novo nome se estiver na lista
+        Array.from(folderSelect.options).forEach(opt => {
+          if (opt.value === (resp.newName || newName)) folderSelect.value = (resp.newName || newName);
+        });
+        selectedRawName.textContent = `Arquivo selecionado: ${resp.newName || newName}`;
+        validateForm();
+      } catch (err) {
+        console.error('Erro ao renomear:', err);
+        showMessage('error', 'Erro ao renomear', err.message);
+      }
+    }
+    renameButton.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (!renameButton.disabled) renameSelectedZip();
+    });
+
+    // Modal de imagem
     function openImageModal(src) {
       imageModalContent.src = src;
       imageModal.classList.remove('hidden');
     }
-
-    // Fechar modal (X, clique fora e ESC)
     imageModalClose.addEventListener('click', () => imageModal.classList.add('hidden'));
-    imageModal.addEventListener('click', (e) => {
-      if (e.target === imageModal) imageModal.classList.add('hidden');
-    });
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && !imageModal.classList.contains('hidden')) {
-        imageModal.classList.add('hidden');
-      }
-    });
+    imageModal.addEventListener('click', (e) => { if (e.target === imageModal) imageModal.classList.add('hidden'); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !imageModal.classList.contains('hidden')) imageModal.classList.add('hidden'); });
 
-    // Delegação: clique nas imagens da galeria abre o modal
     gallery.addEventListener('click', (e) => {
-      if (e.target && e.target.tagName === 'IMG') {
-        openImageModal(e.target.src);
-      }
+      if (e.target && e.target.tagName === 'IMG') openImageModal(e.target.src);
     });
 
     // Inicialização
