@@ -13,6 +13,7 @@ from urllib.parse import quote, unquote
 import zipfile
 import streamlit as st
 from PIL import Image
+import streamlit.components.v1 as components 
 
 # ------------- Aparência / CSS -------------
 st.set_page_config(page_title="Visualização de Fotos", layout="wide")
@@ -38,6 +39,13 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# ---- Auto-reload a cada 5 minutos (300.000 ms)
+components.html(
+    "<script>setTimeout(() => window.location.reload(), 300000);</script>",
+    height=0,
+)
+
+
 # ------------- Config -------------
 THUMB_PX = 144
 MAX_IMGS = 120
@@ -55,7 +63,7 @@ def parse_date_from_name(name: str):
     except Exception:
         return None
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=300)
 def scan_zip_index(root: str):
     """Indexa .zip SOMENTE no diretório raiz: caminho, nome e data (por nome ou mtime)."""
     root_path = Path(root)
